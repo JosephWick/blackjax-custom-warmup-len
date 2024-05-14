@@ -29,9 +29,17 @@ from blackjax.util import run_inference_algorithm
     ],
 )
 def test_adaptation_schedule(num_steps, expected_schedule):
+    # test with default buffer/window sizes
     adaptation_schedule = window_adaptation.build_schedule(num_steps)
     assert num_steps == len(adaptation_schedule)
     assert np.array_equal(adaptation_schedule, expected_schedule)
+
+    # test with custom buffer/window sizes; 0 first_window_size
+    adaptation_schedule = window_adaptation.build_schedule(
+        num_steps, first_window_size=0
+    )
+    assert num_steps == len(adaptation_schedule)
+    assert np.sum(adaptation_schedule[:, 0]) == 0
 
 
 def test_chees_adaptation():
