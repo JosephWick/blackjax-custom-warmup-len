@@ -68,6 +68,7 @@ class MassMatrixAdaptationState(NamedTuple):
 
 def mass_matrix_adaptation(
     is_diagonal_matrix: bool = True,
+    initial_mass_matrix = None
 ) -> tuple[Callable, Callable, Callable]:
     """Adapts the values in the mass matrix by computing the covariance
     between parameters.
@@ -105,6 +106,8 @@ def mass_matrix_adaptation(
             inverse_mass_matrix = jnp.ones(n_dims)
         else:
             inverse_mass_matrix = jnp.identity(n_dims)
+        if initial_mass_matrix is not None:
+            inverse_mass_matrix = jnp.array(initial_mass_matrix)
 
         wc_state = wc_init(n_dims)
 
