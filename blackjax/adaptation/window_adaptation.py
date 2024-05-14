@@ -44,6 +44,7 @@ class WindowAdaptationState(NamedTuple):
 def base(
     is_mass_matrix_diagonal: bool,
     target_acceptance_rate: float = 0.80,
+    initial_mass_matrix = None,
 ) -> tuple[Callable, Callable, Callable]:
     """Warmup scheme for sampling procedures based on euclidean manifold HMC.
     The schedule and algorithms used match Stan's :cite:p:`stan_hmc_param` as closely as possible.
@@ -98,7 +99,8 @@ def base(
         state.
 
     """
-    mm_init, mm_update, mm_final = mass_matrix_adaptation(is_mass_matrix_diagonal)
+    mm_init, mm_update, mm_final = mass_matrix_adaptation(is_mass_matrix_diagonal,
+                                                          initial_mass_matrix)
     da_init, da_update, da_final = dual_averaging_adaptation(target_acceptance_rate)
 
     def init(
@@ -248,6 +250,7 @@ def window_adaptation(
     initial_step_size: float = 1.0,
     target_acceptance_rate: float = 0.80,
     progress_bar: bool = False,
+    initial_mass_matrix = None,
     **extra_parameters,
 ) -> AdaptationAlgorithm:
     """Adapt the value of the inverse mass matrix and step size parameters of
@@ -293,6 +296,7 @@ def window_adaptation(
     adapt_init, adapt_step, adapt_final = base(
         is_mass_matrix_diagonal,
         target_acceptance_rate=target_acceptance_rate,
+        initial_mass_matrix=initial_mass_matrix,
     )
 
     def one_step(carry, xs):
@@ -319,7 +323,14 @@ def window_adaptation(
             AdaptationInfo(new_state, info, new_adaptation_state),
         )
 
-    def run(rng_key: PRNGKey, position: ArrayLikeTree, num_steps: int = 1000):
+    def run(
+        rng_key: PRNGKey,
+        position: ArrayLikeTree,
+        num_steps: int = 1000,
+        initial_buffer_size: int = 75,
+        final_buffer_size: int = 50,
+        first_window_size: int = 25,
+    ):
         init_state = algorithm.init(position, logdensity_fn)
         init_adaptation_state = adapt_init(position, initial_step_size)
 
@@ -330,7 +341,8 @@ def window_adaptation(
             one_step_ = jax.jit(one_step)
 
         keys = jax.random.split(rng_key, num_steps)
-        schedule = build_schedule(num_steps)
+        schedule = build_schedule(num_steps, initial_buffer_size,
+                                  final_buffer_size, first_window_size)
         last_state, info = jax.lax.scan(
             one_step_,
             (init_state, init_adaptation_state),
@@ -410,10 +422,10 @@ def build_schedule(
     schedule = []
 
     # Give up on mass matrix adaptation when the number of warmup steps is too small.
-    if num_steps < 20:
+    if num_steps < 20 or first_window_size == 0:
         schedule += [(0, False)] * num_steps
     else:
-        # When the number of warmup steps is smaller that the sum of the provided (or default)
+        # When the number of warmup steps is smaller than the sum of the provided (or default)
         # window sizes we need to resize the different windows.
         if initial_buffer_size + first_window_size + final_buffer_size > num_steps:
             initial_buffer_size = int(0.15 * num_steps)
